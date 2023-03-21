@@ -18,13 +18,14 @@ contract Upgrade_1_5_2 is Test {
     ISuperfluid host;
     ISuperfluidGovernance gov;
     IMultiSigWallet multisig;
-    address NATIVE_TOKEN_WRAPPER = 0x3aD736904E9e65189c3000c7DD2c8AC8bB7cD4e3; // MATICx
+    address NATIVE_TOKEN_WRAPPER;
     CFAv1Forwarder cfaFwd = CFAv1Forwarder(0xcfA132E353cB4E398080B9700609bb008eceB125);
 
     constructor() {
         string memory rpc = vm.envString("RPC");
         vm.createSelectFork(rpc);
         HOST_ADDR = vm.envAddress("HOST_ADDR");
+        NATIVE_TOKEN_WRAPPER = vm.envAddress("NATIVE_TOKEN_WRAPPER");
         host = ISuperfluid(HOST_ADDR);
         gov = ISuperfluidGovernance(host.getGovernance());
         address govOwner = Ownable(address(gov)).owner();
