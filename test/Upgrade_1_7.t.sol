@@ -5,7 +5,6 @@ import "forge-std/Test.sol";
 import { 
     ISuperfluid,
     ISuperfluidGovernance,
-    ISuperTokenFactory,
     ISuperToken
 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
@@ -14,13 +13,16 @@ import { IMultiSigWallet } from "./helpers/IMultiSigWallet.sol";
 import { ISETH } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/tokens/ISETH.sol";
 import { CFAv1Forwarder } from "@superfluid-finance/ethereum-contracts/contracts/utils/CFAv1Forwarder.sol";
 import { UUPSProxiable } from "@superfluid-finance/ethereum-contracts/contracts/upgradability/UUPSProxiable.sol";
+import { ConstantOutflowNFT } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/ConstantOutflowNFT.sol";
+import { ConstantInflowNFT } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/ConstantInflowNFT.sol";
+import { SuperTokenFactory } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperTokenFactory.sol";
 
 contract Upgrade_1_7 is Test {
     
     address HOST_ADDR;
     ISuperfluid host;
     ISuperfluidGovernance gov;
-    ISuperTokenFactory factory;
+    SuperTokenFactory factory;
     IMultiSigWallet multisig;
     address NATIVE_TOKEN_WRAPPER;
     address SUPERTOKEN;
@@ -36,7 +38,7 @@ contract Upgrade_1_7 is Test {
         SUPERTOKEN = vm.envOr("SUPERTOKEN", address(0));
         host = ISuperfluid(HOST_ADDR);
         gov = ISuperfluidGovernance(host.getGovernance());
-        factory = host.getSuperTokenFactory();
+        factory = SuperTokenFactory(address(host.getSuperTokenFactory()));
         address govOwner = Ownable(address(gov)).owner();
         multisig = IMultiSigWallet(govOwner);
     }
@@ -52,14 +54,7 @@ contract Upgrade_1_7 is Test {
     function testUpdateNativeSuperTokenLogic() public {
         execGovAction();
 
-        console.log("SuperToken logic before upgrade: %s", UUPSProxiable(NATIVE_TOKEN_WRAPPER).getCodeAddress());
-        ISuperToken[] memory tokens = new ISuperToken[](1);
-        tokens[0] = ISuperToken(NATIVE_TOKEN_WRAPPER);
-        vm.startPrank(address(multisig));
-        gov.batchUpdateSuperTokenLogic(host, tokens);
-        console.log("SuperToken logic after upgrade: %s", UUPSProxiable(NATIVE_TOKEN_WRAPPER).getCodeAddress());
-        vm.stopPrank();
-        assertEq(UUPSProxiable(NATIVE_TOKEN_WRAPPER).getCodeAddress(), address(factory.getSuperTokenLogic()));
+        updateSuperToken(NATIVE_TOKEN_WRAPPER);
 
         console.log("smoke testing native token wrapper after token logic update %s", NATIVE_TOKEN_WRAPPER);
         smokeTestNativeTokenWrapper();
@@ -69,20 +64,30 @@ contract Upgrade_1_7 is Test {
         if (SUPERTOKEN != address(0)) {
             execGovAction();
 
-            console.log("SuperToken logic before upgrade: %s", UUPSProxiable(SUPERTOKEN).getCodeAddress());
-            ISuperToken[] memory tokens = new ISuperToken[](1);
-            tokens[0] = ISuperToken(SUPERTOKEN);
-            vm.startPrank(address(multisig));
-            gov.batchUpdateSuperTokenLogic(host, tokens);
-            console.log("SuperToken logic after upgrade: %s", UUPSProxiable(SUPERTOKEN).getCodeAddress());
-            vm.stopPrank();
-            assertEq(UUPSProxiable(SUPERTOKEN).getCodeAddress(), address(factory.getSuperTokenLogic()));
+            updateSuperToken(SUPERTOKEN);
 
             console.log("smoke testing native token wrapper after token logic update %s", SUPERTOKEN);
             smokeTestSuperToken(SUPERTOKEN);
         } else {
             console.log("skipping (zero address set)");
         }
+    }
+
+    function testSuperTokenHasNFTWithCorrectBaseUri() public {
+        execGovAction();
+        updateSuperToken(NATIVE_TOKEN_WRAPPER);
+
+        ISuperToken superToken = ISuperToken(NATIVE_TOKEN_WRAPPER);
+
+        ConstantOutflowNFT cof = ConstantOutflowNFT(address(superToken.CONSTANT_OUTFLOW_NFT()));
+        assertEq(cof.baseURI(), "https://nft.superfluid.finance/cfa/v2/getmeta", "wrong base uri");
+        assertEq(address(factory.CONSTANT_OUTFLOW_NFT_LOGIC()), address(UUPSProxiable(cof.getCodeAddress())), "cof logic mismatch");
+
+        ConstantInflowNFT cif = ConstantInflowNFT(address(superToken.CONSTANT_INFLOW_NFT()));
+        assertEq(cif.baseURI(), "https://nft.superfluid.finance/cfa/v2/getmeta", "wrong base uri");
+        assertEq(address(factory.CONSTANT_INFLOW_NFT_LOGIC()), address(UUPSProxiable(cif.getCodeAddress())), "cif logic mismatch");
+
+        assertTrue(address(cif) != address(cof), "cif and cof should not have same address");
     }
 
      // HELPERS =====================================================
@@ -119,6 +124,17 @@ contract Upgrade_1_7 is Test {
             ownerId++;
         }
         console.log("host logic after upgrade: %s", UUPSProxiable(HOST_ADDR).getCodeAddress());
+    }
+
+    function updateSuperToken(address superTokenAddr) public {
+        console.log("SuperToken %s logic before upgrade: %s", superTokenAddr, UUPSProxiable(superTokenAddr).getCodeAddress());
+        ISuperToken[] memory tokens = new ISuperToken[](1);
+        tokens[0] = ISuperToken(superTokenAddr);
+        vm.startPrank(address(multisig));
+        gov.batchUpdateSuperTokenLogic(host, tokens);
+        console.log("SuperToken logic after upgrade: %s", UUPSProxiable(superTokenAddr).getCodeAddress());
+        vm.stopPrank();
+        assertEq(UUPSProxiable(superTokenAddr).getCodeAddress(), address(factory.getSuperTokenLogic()));
     }
 
     function smokeTestNativeTokenWrapper() public {
