@@ -5,6 +5,8 @@
 * `ln -sf /path/to/your/cft-nft-contracts cfanft`
 * `forge test`
 
+In order to upgrade foundry, checkout https://github.com/foundry-rs/forge-std and place it in lib
+
 ## Tests
 
 ### CFAHookTest

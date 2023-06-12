@@ -9,6 +9,7 @@ import {
     ISuperToken
 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IMultiSigWallet } from "./helpers/IMultiSigWallet.sol";
 import { ISETH } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/tokens/ISETH.sol";
 import { CFAv1Forwarder } from "@superfluid-finance/ethereum-contracts/contracts/utils/CFAv1Forwarder.sol";
@@ -25,12 +26,14 @@ contract Upgrade_1_7 is Test {
     address SUPERTOKEN;
     CFAv1Forwarder cfaFwd = CFAv1Forwarder(0xcfA132E353cB4E398080B9700609bb008eceB125);
 
+    address constant alice = address(0x420);
+
     constructor() {
         string memory rpc = vm.envString("RPC");
         vm.createSelectFork(rpc);
         HOST_ADDR = vm.envAddress("HOST_ADDR");
         NATIVE_TOKEN_WRAPPER = vm.envAddress("NATIVE_TOKEN_WRAPPER");
-        SUPERTOKEN = vm.envAddress("SUPERTOKEN");
+        SUPERTOKEN = vm.envOr("SUPERTOKEN", address(0));
         host = ISuperfluid(HOST_ADDR);
         gov = ISuperfluidGovernance(host.getGovernance());
         factory = host.getSuperTokenFactory();
@@ -46,7 +49,7 @@ contract Upgrade_1_7 is Test {
         smokeTestNativeTokenWrapper();
     }
 
-    function testUpdateSuperTokenLogic() public {
+    function testUpdateNativeSuperTokenLogic() public {
         execGovAction();
 
         console.log("SuperToken logic before upgrade: %s", UUPSProxiable(NATIVE_TOKEN_WRAPPER).getCodeAddress());
@@ -60,6 +63,26 @@ contract Upgrade_1_7 is Test {
 
         console.log("smoke testing native token wrapper after token logic update %s", NATIVE_TOKEN_WRAPPER);
         smokeTestNativeTokenWrapper();
+    }
+
+    function testUpdateOtherSuperTokenLogic() public {
+        if (SUPERTOKEN != address(0)) {
+            execGovAction();
+
+            console.log("SuperToken logic before upgrade: %s", UUPSProxiable(SUPERTOKEN).getCodeAddress());
+            ISuperToken[] memory tokens = new ISuperToken[](1);
+            tokens[0] = ISuperToken(SUPERTOKEN);
+            vm.startPrank(address(multisig));
+            gov.batchUpdateSuperTokenLogic(host, tokens);
+            console.log("SuperToken logic after upgrade: %s", UUPSProxiable(SUPERTOKEN).getCodeAddress());
+            vm.stopPrank();
+            assertEq(UUPSProxiable(SUPERTOKEN).getCodeAddress(), address(factory.getSuperTokenLogic()));
+
+            console.log("smoke testing native token wrapper after token logic update %s", SUPERTOKEN);
+            smokeTestSuperToken(SUPERTOKEN);
+        } else {
+            console.log("skipping (zero address set)");
+        }
     }
 
      // HELPERS =====================================================
@@ -120,24 +143,26 @@ contract Upgrade_1_7 is Test {
         vm.stopPrank();
     }
 
-    function smokeTestSuperToken() public {
-        ISuperToken superToken = ISuperToken(SUPERTOKEN);
+    function smokeTestSuperToken(address superTokenAddr) public {
+        ISuperToken superToken = ISuperToken(superTokenAddr);
+        IERC20 underlying = IERC20(superToken.getUnderlyingToken());
+        deal(alice, address(underlying), uint256(100e18));
+        underlying.approve(superTokenAddr, 100e18);
 
         // the GH agent account has native tokens everywhere
-        vm.startPrank(0xd15D5d0f5b1b56A4daEF75CfE108Cb825E97d015);
+        vm.startPrank(alice);
 
-        // upgrade some native tokens
-        ethx.upgradeByETH{value: 1e16}();
+        superToken.upgrade(1e18);
 
         // start a stream using the forwarder
-        cfaFwd.setFlowrate(ethx, address(this), 1e9);
+        cfaFwd.setFlowrate(superToken, address(this), 1e9);
         skip(1000);
-        assertEq(ethx.balanceOf(address(this)), 1e9 * 1000);
+        assertEq(superToken.balanceOf(address(this)), 1e9 * 1000);
 
         // stop the stream
-        cfaFwd.setFlowrate(ethx, address(this), 0);
+        cfaFwd.setFlowrate(superToken, address(this), 0);
         skip(1000);
-        assertEq(ethx.balanceOf(address(this)), 1e9 * 1000); // no change
+        assertEq(superToken.balanceOf(address(this)), 1e9 * 1000); // no change
 
         vm.stopPrank();
     }
