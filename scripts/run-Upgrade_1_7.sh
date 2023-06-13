@@ -6,9 +6,7 @@ set -eu
 
 networkOrNetworkClass=$1
 
-# TODO: switch to master branch once PR is merged
-metadata=$(curl -s "https://raw.githubusercontent.com/superfluid-finance/metadata/0f8465d6b0618e39159da14d25e38ab04db7b05e/networks.json")
-#json=$(curl -s "https://raw.githubusercontent.com/superfluid-finance/metadata/master/networks.json")
+metadata=$(curl -s "https://raw.githubusercontent.com/superfluid-finance/metadata/master/networks.json")
 
 # takes the network name as argument
 function test_network() {
