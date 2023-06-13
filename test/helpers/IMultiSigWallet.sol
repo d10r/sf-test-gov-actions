@@ -27,4 +27,6 @@ interface IMultiSigWallet {
     function getConfirmationCount(uint transactionId) external view returns (uint count);
 
     function getConfirmations(uint transactionId) external view returns (address[] memory _confirmations);
+
+    function transactionCount() external view returns (uint);
 }

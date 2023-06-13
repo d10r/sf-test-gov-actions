@@ -102,7 +102,12 @@ contract Upgrade_1_7 is Test {
     }
 
     function execGovAction() public {
-        uint256 TXID = vm.envUint("TXID");
+        uint256 TXID = vm.envOr("TXID", type(uint256).max); // unset means autodetect
+
+        if (TXID == type(uint256).max) {
+            TXID = multisig.transactionCount()-1;
+            console.log("TXID not provided, assuming it's the latest tx: %s", TXID);
+        }
 
         assertFalse(multisig.isConfirmed(TXID), "gov action already executed");
 
