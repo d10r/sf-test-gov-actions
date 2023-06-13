@@ -66,7 +66,7 @@ contract Upgrade_1_7 is Test {
 
             updateSuperToken(SUPERTOKEN);
 
-            console.log("smoke testing native token wrapper after token logic update %s", SUPERTOKEN);
+            console.log("smoke testing token wrapper after token logic update %s", SUPERTOKEN);
             smokeTestSuperToken(SUPERTOKEN);
         } else {
             console.log("skipping (zero address set)");
@@ -139,9 +139,10 @@ contract Upgrade_1_7 is Test {
 
     function smokeTestNativeTokenWrapper() public {
         ISETH ethx = ISETH(NATIVE_TOKEN_WRAPPER);
+        // give alice plenty of native tokens
+        deal(alice, uint256(100e18));
 
-        // the GH agent account has native tokens everywhere
-        vm.startPrank(0xd15D5d0f5b1b56A4daEF75CfE108Cb825E97d015);
+        vm.startPrank(alice);
 
         // upgrade some native tokens
         ethx.upgradeByETH{value: 1e16}();
@@ -162,12 +163,11 @@ contract Upgrade_1_7 is Test {
     function smokeTestSuperToken(address superTokenAddr) public {
         ISuperToken superToken = ISuperToken(superTokenAddr);
         IERC20 underlying = IERC20(superToken.getUnderlyingToken());
-        deal(alice, address(underlying), uint256(100e18));
-        underlying.approve(superTokenAddr, 100e18);
+        deal(address(underlying), alice, uint256(100e18));
 
-        // the GH agent account has native tokens everywhere
         vm.startPrank(alice);
 
+        underlying.approve(superTokenAddr, 100e18);
         superToken.upgrade(1e18);
 
         // start a stream using the forwarder
