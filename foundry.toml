@@ -7,4 +7,6 @@ remappings = [
     '@openzeppelin=sf/node_modules/@openzeppelin',
     'cfanft=cfanft/'
 ]
+fs_permissions = [{ access = "read", path = "./input/"}]
+
 # See more config options https://github.com/foundry-rs/foundry/tree/master/config
