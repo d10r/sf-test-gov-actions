@@ -9,6 +9,11 @@ In order to upgrade foundry, checkout https://github.com/foundry-rs/forge-std an
 
 In `scripts` there's helper scripts for running the tests.
 
+Example invocation:
+```sh
+scripts/run_upgrade-governance.sh celo-mainnet
+```
+
 ## Tests
 
 ### CFAHookTest
