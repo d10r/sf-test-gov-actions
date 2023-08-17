@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# usage: run_upgrade-governance.sh <network> | mainnets
+# usage: run_upgrade-contracts.sh <network> | mainnets
 
 set -eu
 
@@ -25,7 +25,7 @@ function test_network() {
 	echo "Host: $host"
     echo "Native Token Wrapper: $seth"
 
-	RPC=$rpc HOST_ADDR=$host NATIVE_TOKEN_WRAPPER=$seth forge test --match-contract UpgradeGovernance -vvv
+	RPC=$rpc HOST_ADDR=$host NATIVE_TOKEN_WRAPPER=$seth forge test --match-contract UpgradeContracts -vvv
 }
 
 if [[ $networkOrNetworkClass == "mainnets" ]]; then
