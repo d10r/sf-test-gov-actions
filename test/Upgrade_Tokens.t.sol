@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPLv3
 pragma solidity 0.8.19;
 
-import "./UpgradeBase.sol";
+import "./lib/UpgradeBase.sol";
 import "forge-std/StdJson.sol";
 
 using stdJson for string;

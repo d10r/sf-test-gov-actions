@@ -11,7 +11,8 @@ In `scripts` there's helper scripts for running the tests.
 
 Example invocation:
 ```sh
-scripts/run_upgrade-governance.sh celo-mainnet
+# arguments: network_name, test_contract
+scripts/run_test.sh celo-mainnet Upgrade_1_8
 ```
 
 ## Tests
@@ -31,3 +32,12 @@ RPC=https://celo-mainnet... HOST_ADDR=0xA4Ff07cF81C02CFD356184879D953970cA957585
 ### UpgradeTokens
 
 smoke tests (start and stop stream) SuperTokens before and after upgrading.
+
+### UpgradeContracts
+
+Simulates the upgrade to a given set of logic contracts (host logic, agreement logics, supertoken factory logic).  
+Directly impersonates gov, ignoring an eventual multisig setup
+
+### Upgrade_x_y
+
+Upgrade to a specific release, simluates execution of the gov action(s), may contain additional tests specific for that upgrade.

@@ -45,6 +45,7 @@ contract UpgradeContracts is Test {
 
         host = ISuperfluid(HOST_ADDR);
         gov = ISuperfluidGovernance(host.getGovernance());
+        console.log("gov: %s", address(gov));
 
         govOwner = Ownable(address(gov)).owner();
         multisig = IMultiSigWallet(govOwner);

@@ -9,7 +9,7 @@ import {
 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { IMultiSigWallet } from "./helpers/IMultiSigWallet.sol";
+import { IMultiSigWallet } from "../helpers/IMultiSigWallet.sol";
 import { ISETH } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/tokens/ISETH.sol";
 import { CFAv1Forwarder } from "@superfluid-finance/ethereum-contracts/contracts/utils/CFAv1Forwarder.sol";
 import { UUPSProxiable } from "@superfluid-finance/ethereum-contracts/contracts/upgradability/UUPSProxiable.sol";
@@ -30,6 +30,8 @@ contract UpgradeBase is Test {
     CFAv1Forwarder cfaFwd = CFAv1Forwarder(0xcfA132E353cB4E398080B9700609bb008eceB125);
 
     address constant alice = address(0x420);
+
+    uint256 constant NOT_SET = type(uint256).max;
 
     constructor() {
         string memory rpc = vm.envString("RPC");
@@ -55,29 +57,36 @@ contract UpgradeBase is Test {
         return false;
     }
 
-    // executes a gov action with Multisig owner.
-    // if env TXID is set, it will use that tx id, otherwise it will use the latest tx
-    function execMultisigGovAction() public {
-        uint256 TXID = vm.envOr("TXID", type(uint256).max); // unset means autodetect
+    function getLastMultisigTxId() public returns(uint) {
+        return multisig.transactionCount() - 1;
+    }
 
-        if (TXID == type(uint256).max) {
-            TXID = multisig.transactionCount()-1;
+    // if env TXID is not set, it will use the latest tx
+    function execMultisigGovAction() public {
+        uint256 TXID = vm.envOr("TXID", NOT_SET);
+        if (TXID == NOT_SET) {
+            TXID = multisig.transactionCount() - 1;
             console.log("TXID not provided, assuming it's the latest tx: %s", TXID);
         }
+        execMultisigGovAction(TXID);
+    }
 
-        assertFalse(multisig.isConfirmed(TXID), "gov action already executed");
+    // executes a gov action with Multisig owner.
+    function execMultisigGovAction(uint txId) public {
+
+        assertFalse(multisig.isConfirmed(txId), "gov action already executed");
 
         // for visual check
         console.log("host logic before upgrade: %s", UUPSProxiable(HOST_ADDR).getCodeAddress());
         
         uint ownerId = 0;
-        while (!multisig.isConfirmed(TXID)) {
+        while (!multisig.isConfirmed(txId)) {
             address signer = multisig.owners(ownerId);
-            if (!isAddressInArray(multisig.getConfirmations(TXID), signer)) {
+            if (!isAddressInArray(multisig.getConfirmations(txId), signer)) {
                 console.log("signer %s confirms", signer);
                 vm.startPrank(signer);
                 // confirmTransaction already executes if it's the last required confirmation
-                multisig.confirmTransaction(TXID);
+                multisig.confirmTransaction(txId);
                 vm.stopPrank();
             } else {
                 console.log("skipping signer %s (already signed)", signer);
@@ -87,11 +96,12 @@ contract UpgradeBase is Test {
         console.log("host logic after upgrade: %s", UUPSProxiable(HOST_ADDR).getCodeAddress());
     }
 
+    // precondition: SuperToken is owned by SF gov
     function updateSuperToken(address superTokenAddr) public {
         console.log("SuperToken %s logic before upgrade: %s", superTokenAddr, UUPSProxiable(superTokenAddr).getCodeAddress());
         ISuperToken[] memory tokens = new ISuperToken[](1);
         tokens[0] = ISuperToken(superTokenAddr);
-        vm.startPrank(address(multisig));
+        vm.startPrank(Ownable(address(gov)).owner());
         gov.batchUpdateSuperTokenLogic(host, tokens);
         console.log("SuperToken logic after upgrade: %s", UUPSProxiable(superTokenAddr).getCodeAddress());
         vm.stopPrank();
