@@ -5,7 +5,9 @@ import "forge-std/Test.sol";
 import { 
     ISuperfluid,
     ISuperfluidGovernance,
-    ISuperToken
+    ISuperToken,
+    IConstantOutflowNFT,
+    IConstantInflowNFT
 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -57,7 +59,7 @@ contract UpgradeBase is Test {
         return false;
     }
 
-    function getLastMultisigTxId() public returns(uint) {
+    function getLastMultisigTxId() public view returns(uint) {
         return multisig.transactionCount() - 1;
     }
 
@@ -109,6 +111,7 @@ contract UpgradeBase is Test {
     }
 
     // smoke tests the native token wrapper provided in env var NATIVE_TOKEN_WRAPPER
+    // relied on min deposit for the token not messing with the test
     function smokeTestNativeTokenWrapper() public {
         ISETH ethx = ISETH(NATIVE_TOKEN_WRAPPER);
         // give alice plenty of native tokens
@@ -117,17 +120,17 @@ contract UpgradeBase is Test {
         vm.startPrank(alice);
 
         // upgrade some native tokens
-        ethx.upgradeByETH{value: 1e16}();
+        ethx.upgradeByETH{value: 1e18}();
 
         // start a stream using the forwarder
-        cfaFwd.setFlowrate(ethx, address(this), 1e9);
+        cfaFwd.setFlowrate(ethx, address(this), 1e12);
         skip(1000);
-        assertEq(ethx.balanceOf(address(this)), 1e9 * 1000);
+        assertEq(ethx.balanceOf(address(this)), 1e12 * 1000);
 
         // stop the stream
         cfaFwd.setFlowrate(ethx, address(this), 0);
         skip(1000);
-        assertEq(ethx.balanceOf(address(this)), 1e9 * 1000); // no change
+        assertEq(ethx.balanceOf(address(this)), 1e12 * 1000); // no change
 
         vm.stopPrank();
     }
