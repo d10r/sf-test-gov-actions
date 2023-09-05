@@ -12,6 +12,7 @@ metadata=$(curl -s "https://raw.githubusercontent.com/superfluid-finance/protoco
 # takes the network name as argument
 function test_network() {
 	local network=$1
+	local verbosity=${VERBOSITY:-"vvv"}
 
 	rpc=${RPC:-"https://${network}.rpc.x.superfluid.dev"}
 
@@ -26,7 +27,7 @@ function test_network() {
 	echo "Host: $host"
     echo "Native Token Wrapper: $seth"
 
-	RPC=$rpc HOST_ADDR=$host NATIVE_TOKEN_WRAPPER=$seth forge test --match-contract $testContract -vvv
+	RPC=$rpc HOST_ADDR=$host NATIVE_TOKEN_WRAPPER=$seth forge test --match-contract $testContract -${verbosity}
 }
 
 if [[ $networkOrNetworkClass == "mainnets" ]]; then
