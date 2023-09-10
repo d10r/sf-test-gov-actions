@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# usage: run_upgrade-contracts.sh <network> | mainnets
+# usage: run_test.sh <network> | mainnets
 
 set -eu
 
