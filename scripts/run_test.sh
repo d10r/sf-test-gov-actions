@@ -6,13 +6,14 @@ set -eu
 
 networkOrNetworkClass=$1
 testContract=$2
+shift 2
+extraArgs=$@
 
 metadata=$(curl -s "https://raw.githubusercontent.com/superfluid-finance/protocol-monorepo/dev/packages/metadata/networks.json")
 
 # takes the network name as argument
 function test_network() {
 	local network=$1
-	local verbosity=${VERBOSITY:-"vvv"}
 
 	rpc=${RPC:-"https://${network}.rpc.x.superfluid.dev"}
 
@@ -27,7 +28,7 @@ function test_network() {
 	echo "Host: $host"
     echo "Native Token Wrapper: $seth"
 
-	RPC=$rpc HOST_ADDR=$host NATIVE_TOKEN_WRAPPER=$seth forge test --match-contract $testContract -${verbosity}
+	RPC=$rpc HOST_ADDR=$host NATIVE_TOKEN_WRAPPER=$seth forge test --match-contract $testContract $extraArgs
 }
 
 if [[ $networkOrNetworkClass == "mainnets" ]]; then
