@@ -4,6 +4,7 @@ libs = ['lib']
 allow_paths = ["sf", "cfanft"]
 remappings = [
     '@superfluid-finance/ethereum-contracts/=sf/packages/ethereum-contracts/',
+    '@superfluid-finance/solidity-semantic-money=sf/packages/solidity-semantic-money',
     '@openzeppelin=sf/node_modules/@openzeppelin',
     'cfanft=cfanft/'
 ]

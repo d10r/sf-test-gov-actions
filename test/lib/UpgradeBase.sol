@@ -2,12 +2,15 @@
 pragma solidity 0.8.19;
 
 import "forge-std/Test.sol";
-import { 
+import {
     ISuperfluid,
     ISuperfluidGovernance,
     ISuperToken,
     IConstantOutflowNFT,
-    IConstantInflowNFT
+    IConstantInflowNFT,
+    ISuperfluidPool,
+    PoolConfig,
+    IGeneralDistributionAgreementV1
 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -18,10 +21,13 @@ import { UUPSProxiable } from "@superfluid-finance/ethereum-contracts/contracts/
 import { ConstantOutflowNFT } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/ConstantOutflowNFT.sol";
 import { ConstantInflowNFT } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/ConstantInflowNFT.sol";
 import { SuperTokenFactory } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperTokenFactory.sol";
+import { SuperTokenV1Library } from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperTokenV1Library.sol";
+import { IBeacon } from "@openzeppelin/contracts/proxy/beacon/IBeacon.sol";
+
+using SuperTokenV1Library for ISuperToken;
 
 // Base contract with functionality commonly needed for testing framework and token upgrades
 contract UpgradeBase is Test {
-    
     address HOST_ADDR;
     ISuperfluid host;
     ISuperfluidGovernance gov;
@@ -32,6 +38,7 @@ contract UpgradeBase is Test {
     CFAv1Forwarder cfaFwd = CFAv1Forwarder(0xcfA132E353cB4E398080B9700609bb008eceB125);
 
     address constant alice = address(0x420);
+    address constant bob = address(0x421);
 
     uint256 constant NOT_SET = type(uint256).max;
 
@@ -73,20 +80,23 @@ contract UpgradeBase is Test {
         execMultisigGovAction(TXID);
     }
 
+    // see https://github.com/gnosis/MultiSigWallet/blob/master/contracts/MultiSigWallet.sol
+    event Execution(uint indexed transactionId);
+    event ExecutionFailure(uint indexed transactionId);
     // executes a gov action with Multisig owner.
     function execMultisigGovAction(uint txId) public {
 
         assertFalse(multisig.isConfirmed(txId), "gov action already executed");
 
-        // for visual check
-        console.log("host logic before upgrade: %s", UUPSProxiable(HOST_ADDR).getCodeAddress());
-        
         uint ownerId = 0;
         while (!multisig.isConfirmed(txId)) {
             address signer = multisig.owners(ownerId);
             if (!isAddressInArray(multisig.getConfirmations(txId), signer)) {
-                console.log("signer %s confirms", signer);
+                console.log("  tx %s: signer %s confirms", txId, signer);
                 vm.startPrank(signer);
+
+                vm.expectEmit(true, false, false, false);
+                emit Execution(txId);
                 // confirmTransaction already executes if it's the last required confirmation
                 multisig.confirmTransaction(txId);
                 vm.stopPrank();
@@ -95,17 +105,16 @@ contract UpgradeBase is Test {
             }
             ownerId++;
         }
-        console.log("host logic after upgrade: %s", UUPSProxiable(HOST_ADDR).getCodeAddress());
     }
 
     // precondition: SuperToken is owned by SF gov
     function updateSuperToken(address superTokenAddr) public {
-        console.log("SuperToken %s logic before upgrade: %s", superTokenAddr, UUPSProxiable(superTokenAddr).getCodeAddress());
+        //console.log("SuperToken %s logic before upgrade: %s", superTokenAddr, UUPSProxiable(superTokenAddr).getCodeAddress());
         ISuperToken[] memory tokens = new ISuperToken[](1);
         tokens[0] = ISuperToken(superTokenAddr);
         vm.startPrank(Ownable(address(gov)).owner());
         gov.batchUpdateSuperTokenLogic(host, tokens);
-        console.log("SuperToken logic after upgrade: %s", UUPSProxiable(superTokenAddr).getCodeAddress());
+        //console.log("SuperToken logic after upgrade: %s", UUPSProxiable(superTokenAddr).getCodeAddress());
         vm.stopPrank();
         assertEq(UUPSProxiable(superTokenAddr).getCodeAddress(), address(factory.getSuperTokenLogic()));
     }
@@ -122,15 +131,18 @@ contract UpgradeBase is Test {
         // upgrade some native tokens
         ethx.upgradeByETH{value: 1e18}();
 
+        uint256 balanceBefore = ethx.balanceOf(address(this));
+
         // start a stream using the forwarder
         cfaFwd.setFlowrate(ethx, address(this), 1e12);
         skip(1000);
-        assertEq(ethx.balanceOf(address(this)), 1e12 * 1000);
+
+        assertEq(ethx.balanceOf(address(this)), balanceBefore + 1e12 * 1000);
 
         // stop the stream
         cfaFwd.setFlowrate(ethx, address(this), 0);
         skip(1000);
-        assertEq(ethx.balanceOf(address(this)), 1e12 * 1000); // no change
+        assertEq(ethx.balanceOf(address(this)), balanceBefore + 1e12 * 1000); // no change
 
         vm.stopPrank();
     }
@@ -172,7 +184,15 @@ contract UpgradeBase is Test {
         vm.stopPrank();
     }
 
-    function printCodeAddress(address superTokenAddr) public view {
-        console.log("code address of %s is %s", superTokenAddr, UUPSProxiable(superTokenAddr).getCodeAddress());
+    function printUUPSCodeAddress(string memory description, address uupsProxyAddr) public view {
+        console.log("%s %s -> %s", description, uupsProxyAddr, UUPSProxiable(uupsProxyAddr).getCodeAddress());
+    }
+    // backwards compat
+    function printCodeAddress(address uupsProxyAddr) public view {
+        printUUPSCodeAddress("Code address:", uupsProxyAddr);
+    }
+
+    function printBeaconCodeAddress(string memory description, address beaconProxyAddr) public view {
+        console.log("%s %s -> %s", description, beaconProxyAddr, IBeacon(beaconProxyAddr).implementation());
     }
 }
