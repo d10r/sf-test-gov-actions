@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.19;
+pragma solidity 0.8.23;
 
 import "./lib/UpgradeBase.sol";
 
@@ -14,37 +14,41 @@ import { PureSuperToken } from "@superfluid-finance/ethereum-contracts/contracts
 using SuperTokenV1Library for ISuperToken;
 
 /*
-* Upgrade to 1.9 which includes GDA rollout.
+* Upgrade to 1.9.1
+* Makes NFT hooks non-optional
 *
-* The upgrade is done in 3 phases:
-* 1. Update gov logic and register GDA.
-* 2. Update framework logic.
-* 3. Update token logic.
+* Required ENV var:
+* - PHASES: bitmask of phases to run. E.g. 3 is phase 1 & phase 2
+* This allows to run individual phases or a combination.
+*
+* For networks not using Safe instad of the legacy multisig wallet,
+* an env var GOV_CALLDATA with the payload for the gov contract shall be provided.
+*
+* Phases:
+* 1. Update framework
+* 2. Upgrade SuperTokens
 */
-contract Upgrade_1_9 is UpgradeBase {
-
-    // single entry-point, phase is chosen by env var
-    // depending on the phase, additional env vars can be required
+contract Upgrade_1_9_1 is UpgradeBase {
+    // single entry-point, phases are chosen by env var
+    // depending on the selected phases, additional env vars can be required
     function testUpgrade() public {
-        int phase = vm.envInt("PHASE");
-
-        uint lastTxId = getLastMultisigTxId();
+        int phases = vm.envInt("PHASES");
+        bytes memory govCallData = vm.envOr("GOV_CALLDATA", new bytes(0));
+        uint lastTxId = (govCallData.length > 0) ? 0xffffffff : getLastMultisigTxId();
         console.log("last multisig tx id: %s", lastTxId);
 
-        if (phase == 1) {
-            console.log("testing phase 1");
-            uint GOV_UPDATE_TX_ID = vm.envUint("GOV_UPDATE_TX_ID");
-            uint REGISTER_GDA_TX_ID = vm.envUint("REGISTER_GDA_TX_ID");
-            _phase1(GOV_UPDATE_TX_ID, REGISTER_GDA_TX_ID);
-        } else if (phase == 2) {
-            console.log("testing phase 2");
-            uint FRAMEWORK_UPDATE_TX_ID = vm.envUint("FRAMEWORK_UPDATE_TX_ID");
-            _phase2(FRAMEWORK_UPDATE_TX_ID);
-        } else if (phase == 3) {
-            console.log("testing phase 3");
-            // here we can default to the last tx id since only one is needed
+        if (phases & 1 != 0) {
+            console.log("testing phase 1 - upgrade framework");
+            uint FRAMEWORK_UPDATE_TX_ID = vm.envOr(
+                "FRAMEWORK_UPDATE_TX_ID",
+                phases & 2 != 0 ? lastTxId - 1 : lastTxId
+            );
+            _phase1(FRAMEWORK_UPDATE_TX_ID, govCallData);
+        }
+        if (phases & 2 != 0) {
+            console.log("testing phase 2 - upgrade super tokens");
             uint TOKEN_UPGRADE_TX_ID = vm.envOr("TOKEN_UPGRADE_TX_ID", lastTxId);
-            _phase3(TOKEN_UPGRADE_TX_ID);
+            _phase2(TOKEN_UPGRADE_TX_ID, govCallData);
         } else {
             console.log("testing nothing, needs to specify an env var PHSAE");
         }
@@ -54,36 +58,18 @@ contract Upgrade_1_9 is UpgradeBase {
     // internal functions
     // ============================================================
 
-    // update gov & deploy gda phase 1
-    function _phase1(uint govUpdateTxId, uint registerGdaTxId) internal {
-        smokeTestNativeTokenWrapper();
-
-        console.log("executing gov update tx id %s", govUpdateTxId);
-        printUUPSCodeAddress("--- gov address before update", address(gov));
-        execMultisigGovAction(govUpdateTxId);
-        printUUPSCodeAddress("+++ gov address after update", address(gov));
-
-        _smokeTestGov();
-
-        console.log("executing gda register tx id %s", registerGdaTxId);
-        execMultisigGovAction(registerGdaTxId);
-
-        GeneralDistributionAgreementV1 gda = GeneralDistributionAgreementV1(address(
-            ISuperfluid(host).getAgreementClass(keccak256("org.superfluid-finance.agreements.GeneralDistributionAgreement.v1"))));
-
-        console.log("GDA address: %s", address(gda));
-
-        smokeTestNativeTokenWrapper();
-    }
-
-    function _phase2(uint frameworkUpdateTxId) internal {
+    function _phase1(uint frameworkUpdateTxId, bytes memory govCallData) internal {
         GeneralDistributionAgreementV1 gda = GeneralDistributionAgreementV1(address(
             ISuperfluid(host).getAgreementClass(keccak256("org.superfluid-finance.agreements.GeneralDistributionAgreement.v1"))));
 
         console.log("executing framework update tx id %s", frameworkUpdateTxId);
         printUUPSCodeAddress("--- gda address before update", address(gda));
         printBeaconCodeAddress("--- pool master address before update", address(gda.superfluidPoolBeacon()));
-        execMultisigGovAction(frameworkUpdateTxId);
+        if (govCallData.length > 0) {
+            execGovAction(govCallData);
+        } else {
+            execMultisigGovAction(frameworkUpdateTxId);
+        }
         printUUPSCodeAddress("+++ gda address after update", address(gda));
         printBeaconCodeAddress("+++ pool master address after update", address(gda.superfluidPoolBeacon()));
 
@@ -92,11 +78,15 @@ contract Upgrade_1_9 is UpgradeBase {
         _smokeTestGDA();
     }
 
-    function _phase3(uint tokenUgradeTxId) internal {
+    function _phase2(uint tokenUgradeTxId, bytes memory govCallData) internal {
         console.log("executing token upgrade tx id %s", tokenUgradeTxId);
 
         printUUPSCodeAddress("--- native token wrapper logic address before update", NATIVE_TOKEN_WRAPPER);
-        execMultisigGovAction(tokenUgradeTxId);
+        if (govCallData.length > 0) {
+            execGovAction(govCallData);
+        } else {
+            execMultisigGovAction(tokenUgradeTxId);
+        }
         printUUPSCodeAddress("+++ native token wrapper logic address after update", NATIVE_TOKEN_WRAPPER);
 
         smokeTestNativeTokenWrapper();
@@ -127,6 +117,8 @@ contract Upgrade_1_9 is UpgradeBase {
         console.log("pool admin", gdaPool.admin());
         console.log("pool GDA", address(SuperfluidPool(address(gdaPool)).GDA()));
 
+        uint256 balanceBobBefore = ethx.balanceOf(bob);
+
         gdaPool.updateMemberUnits(bob, 1);
 
         assertEq(gdaPool.getTotalUnits(), 1);
@@ -140,6 +132,6 @@ contract Upgrade_1_9 is UpgradeBase {
         ethx.connectPool(gdaPool);
         vm.stopPrank();
 
-        assertEq(ethx.balanceOf(bob), 1 ether, "bob balance wrong after gda distribution");
+        assertEq(ethx.balanceOf(bob), balanceBobBefore + 1 ether, "bob balance wrong after gda distribution");
     }
 }

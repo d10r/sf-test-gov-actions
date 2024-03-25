@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.19;
+pragma solidity 0.8.23;
 
 import "forge-std/Test.sol";
 import {
@@ -31,6 +31,7 @@ contract UpgradeBase is Test {
     address HOST_ADDR;
     ISuperfluid host;
     ISuperfluidGovernance gov;
+    address govOwner;
     SuperTokenFactory factory;
     IMultiSigWallet multisig;
     address NATIVE_TOKEN_WRAPPER;
@@ -51,7 +52,8 @@ contract UpgradeBase is Test {
         host = ISuperfluid(HOST_ADDR);
         gov = ISuperfluidGovernance(host.getGovernance());
         factory = SuperTokenFactory(address(host.getSuperTokenFactory()));
-        address govOwner = Ownable(address(gov)).owner();
+        govOwner = Ownable(address(gov)).owner();
+        // optimistically assume the govOwner is of type IMultiSigWallet
         multisig = IMultiSigWallet(govOwner);
     }
 
@@ -70,20 +72,15 @@ contract UpgradeBase is Test {
         return multisig.transactionCount() - 1;
     }
 
-    // if env TXID is not set, it will use the latest tx
+    // executes the latest pending action of the legacy Gnosis Multisig
     function execMultisigGovAction() public {
-        uint256 TXID = vm.envOr("TXID", NOT_SET);
-        if (TXID == NOT_SET) {
-            TXID = multisig.transactionCount() - 1;
-            console.log("TXID not provided, assuming it's the latest tx: %s", TXID);
-        }
-        execMultisigGovAction(TXID);
+        execMultisigGovAction(getLastMultisigTxId());
     }
 
+    // executes the given action of the legacy Gnosis Multisig
     // see https://github.com/gnosis/MultiSigWallet/blob/master/contracts/MultiSigWallet.sol
     event Execution(uint indexed transactionId);
     event ExecutionFailure(uint indexed transactionId);
-    // executes a gov action with Multisig owner.
     function execMultisigGovAction(uint txId) public {
 
         assertFalse(multisig.isConfirmed(txId), "gov action already executed");
@@ -106,6 +103,16 @@ contract UpgradeBase is Test {
             ownerId++;
         }
     }
+
+    // executes a gov action using the provided calldata
+    event ExecutionSuccess(bool success);
+    function execGovAction(bytes memory data) public {
+        vm.startPrank(govOwner);
+        (bool success, bytes memory returnData) = address(gov).call(data);
+        vm.stopPrank();
+        require(success, "Inner transaction execution failed");
+    }
+
 
     // precondition: SuperToken is owned by SF gov
     function updateSuperToken(address superTokenAddr) public {
