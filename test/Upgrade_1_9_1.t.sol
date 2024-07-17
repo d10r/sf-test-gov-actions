@@ -21,7 +21,7 @@ using SuperTokenV1Library for ISuperToken;
 * - PHASES: bitmask of phases to run. E.g. 3 is phase 1 & phase 2
 * This allows to run individual phases or a combination.
 *
-* For networks not using Safe instad of the legacy multisig wallet,
+* For networks using Safe instad of the legacy multisig wallet,
 * an env var GOV_CALLDATA with the payload for the gov contract shall be provided.
 *
 * Phases:
@@ -50,7 +50,7 @@ contract Upgrade_1_9_1 is UpgradeBase {
             uint TOKEN_UPGRADE_TX_ID = vm.envOr("TOKEN_UPGRADE_TX_ID", lastTxId);
             _phase2(TOKEN_UPGRADE_TX_ID, govCallData);
         } else {
-            console.log("testing nothing, needs to specify an env var PHSAE");
+            console.log("testing nothing, needs to specify an env var PHASE");
         }
     }
 

@@ -20,6 +20,8 @@ import { CFAv1Forwarder } from "@superfluid-finance/ethereum-contracts/contracts
 import { UUPSProxiable } from "@superfluid-finance/ethereum-contracts/contracts/upgradability/UUPSProxiable.sol";
 import { ConstantOutflowNFT } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/ConstantOutflowNFT.sol";
 import { ConstantInflowNFT } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/ConstantInflowNFT.sol";
+import { SuperfluidPool } from "@superfluid-finance/ethereum-contracts/contracts/agreements/gdav1/SuperfluidPool.sol";
+import { GeneralDistributionAgreementV1 } from "@superfluid-finance/ethereum-contracts/contracts/agreements/gdav1/GeneralDistributionAgreementV1.sol";
 import { SuperTokenFactory } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperTokenFactory.sol";
 import { SuperTokenV1Library } from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperTokenV1Library.sol";
 import { IBeacon } from "@openzeppelin/contracts/proxy/beacon/IBeacon.sol";
@@ -37,6 +39,7 @@ contract UpgradeBase is Test {
     address NATIVE_TOKEN_WRAPPER;
     address SUPERTOKEN;
     CFAv1Forwarder cfaFwd = CFAv1Forwarder(0xcfA132E353cB4E398080B9700609bb008eceB125);
+    GeneralDistributionAgreementV1 gda;
 
     address constant alice = address(0x420);
     address constant bob = address(0x421);
@@ -55,6 +58,8 @@ contract UpgradeBase is Test {
         govOwner = Ownable(address(gov)).owner();
         // optimistically assume the govOwner is of type IMultiSigWallet
         multisig = IMultiSigWallet(govOwner);
+        gda = GeneralDistributionAgreementV1(address(
+            ISuperfluid(host).getAgreementClass(keccak256("org.superfluid-finance.agreements.GeneralDistributionAgreement.v1"))));
     }
 
     // HELPERS =====================================================
@@ -189,6 +194,36 @@ contract UpgradeBase is Test {
         assertEq(superToken.balanceOf(address(this)), 1e9 * 1000); // no change
 
         vm.stopPrank();
+    }
+
+    function smokeTestGDA() public {
+        ISuperToken ethx = ISETH(NATIVE_TOKEN_WRAPPER);
+        // give alice plenty of native tokens
+        deal(alice, uint256(100e18));
+
+        ISuperfluidPool gdaPool = ethx.createPool(address(this), PoolConfig(true, true));
+        console.log("pool address", address(gdaPool));
+        console.log("pool admin", gdaPool.admin());
+        console.log("pool GDA", address(SuperfluidPool(address(gdaPool)).GDA()));
+
+        uint256 balanceBobBefore = ethx.balanceOf(bob);
+
+        gdaPool.updateMemberUnits(bob, 1);
+
+        assertEq(gdaPool.getTotalUnits(), 1);
+
+        vm.startPrank(alice);
+        ISETH(address(ethx)).upgradeByETH{value: 1e18}();
+        ethx.distributeToPool(alice, gdaPool, 1 ether);
+        vm.stopPrank();
+
+        vm.startPrank(bob);
+        ethx.connectPool(gdaPool);
+        vm.expectRevert(ISuperfluidPool.SUPERFLUID_POOL_SELF_TRANSFER_NOT_ALLOWED.selector);
+        IERC20(gdaPool).transfer(bob, 1);
+        vm.stopPrank();
+
+        assertEq(ethx.balanceOf(bob), balanceBobBefore + 1 ether, "bob balance wrong after gda distribution");
     }
 
     function printUUPSCodeAddress(string memory description, address uupsProxyAddr) public view {
