@@ -22,7 +22,7 @@ import { Superfluid } from "@superfluid-finance/ethereum-contracts/contracts/sup
 import { SuperTokenFactory } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperTokenFactory.sol";
 import { SuperTokenV1Library } from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperTokenV1Library.sol";
 import { IBeacon } from "@openzeppelin/contracts/proxy/beacon/IBeacon.sol";
-import { DMZForwarder } from "@superfluid-finance/ethereum-contracts/contracts/utils/DMZForwarder.sol";
+import { ERC2771Forwarder } from "@superfluid-finance/ethereum-contracts/contracts/utils/ERC2771Forwarder.sol";
 
 using SuperTokenV1Library for ISuperToken;
 
@@ -56,8 +56,8 @@ contract UpgradeBase is Test {
         govOwner = Ownable(address(gov)).owner();
         // optimistically assume the govOwner is of type IMultiSigWallet
         multisig = IMultiSigWallet(govOwner);
-        //gda = GeneralDistributionAgreementV1(address(
-        //    ISuperfluid(host).getAgreementClass(keccak256("org.superfluid-finance.agreements.GeneralDistributionAgreement.v1"))));
+        gda = GeneralDistributionAgreementV1(address(
+            ISuperfluid(host).getAgreementClass(keccak256("org.superfluid-finance.agreements.GeneralDistributionAgreement.v1"))));
     }
 
     // HELPERS =====================================================
@@ -139,10 +139,10 @@ contract UpgradeBase is Test {
         uint256 newCallbackGasLimit = Superfluid(address(host)).CALLBACK_GAS_LIMIT();
         assertGe(newCallbackGasLimit, oldCallbackGasLimit, "callback gas limit shall not decrease!");
 
-        // host owns DMZForwarder
-        DMZForwarder dmzFwd = DMZForwarder(Superfluid(address(host)).DMZ_FORWARDER());
-        assertEq(dmzFwd.owner(), address(host), "dmzFwd owner shall be host");
-        console.log("dmzForwarder address: %s", address(dmzFwd));
+        // host owns ERC2771Forwarder
+        ERC2771Forwarder fwd = ERC2771Forwarder(host.getERC2771Forwarder());
+        assertEq(fwd.owner(), address(host), "ERC2771Forwarder owner shall be host");
+        console.log("erc2771Forwarder address: %s", address(fwd));
     }
 
     // smoke tests the native token wrapper provided in env var NATIVE_TOKEN_WRAPPER

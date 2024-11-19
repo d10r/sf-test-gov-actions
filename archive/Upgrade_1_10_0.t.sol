@@ -18,7 +18,6 @@ using SuperTokenV1Library for ISuperToken;
 contract Upgrade_1_10_0 is UpgradeBase {
     function testUpgrade() public {
         int phases = vm.envInt("PHASES");
-        //bytes memory govCallData = vm.envOr("GOV_CALLDATA", new bytes(0));
         bytes memory phase1CallData = vm.envOr("PHASE1_CALLDATA", new bytes(0));
         bytes memory phase2CallData = vm.envOr("PHASE2_CALLDATA", new bytes(0));
         uint lastTxId = (phase1CallData.length > 0 || phase2CallData.length > 0) ? 0xffffffff : getLastMultisigTxId();
