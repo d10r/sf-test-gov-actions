@@ -8,6 +8,7 @@ import {
     ISuperToken,
     ISuperfluidPool,
     PoolConfig,
+    PoolERC20Metadata,
     IGeneralDistributionAgreementV1
 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
@@ -25,6 +26,7 @@ import { IBeacon } from "@openzeppelin/contracts/proxy/beacon/IBeacon.sol";
 import { ERC2771Forwarder } from "@superfluid-finance/ethereum-contracts/contracts/utils/ERC2771Forwarder.sol";
 
 using SuperTokenV1Library for ISuperToken;
+using SuperTokenV1Library for ISETH;
 
 // Base contract with functionality commonly needed for testing framework and token upgrades
 contract UpgradeBase is Test {
@@ -38,6 +40,7 @@ contract UpgradeBase is Test {
     address SUPERTOKEN;
     CFAv1Forwarder cfaFwd = CFAv1Forwarder(0xcfA132E353cB4E398080B9700609bb008eceB125);
     GeneralDistributionAgreementV1 gda;
+    ISETH ethx;
 
     address constant alice = address(0x420);
     address constant bob = address(0x421);
@@ -58,6 +61,7 @@ contract UpgradeBase is Test {
         multisig = IMultiSigWallet(govOwner);
         gda = GeneralDistributionAgreementV1(address(
             ISuperfluid(host).getAgreementClass(keccak256("org.superfluid-finance.agreements.GeneralDistributionAgreement.v1"))));
+        ethx = ISETH(NATIVE_TOKEN_WRAPPER);
     }
 
     // HELPERS =====================================================
@@ -139,6 +143,9 @@ contract UpgradeBase is Test {
         uint256 newCallbackGasLimit = Superfluid(address(host)).CALLBACK_GAS_LIMIT();
         assertGe(newCallbackGasLimit, oldCallbackGasLimit, "callback gas limit shall not decrease!");
 
+        // most of the time we don't want to change. If otherwise, comment out.
+        assertEq(newCallbackGasLimit, oldCallbackGasLimit, "callback gas limit shall remain the same!");
+
         // host owns ERC2771Forwarder
         ERC2771Forwarder fwd = ERC2771Forwarder(host.getERC2771Forwarder());
         assertEq(fwd.owner(), address(host), "ERC2771Forwarder owner shall be host");
@@ -148,7 +155,6 @@ contract UpgradeBase is Test {
     // smoke tests the native token wrapper provided in env var NATIVE_TOKEN_WRAPPER
     // relied on min deposit for the token not messing with the test
     function smokeTestNativeTokenWrapper() public {
-        ISETH ethx = ISETH(NATIVE_TOKEN_WRAPPER);
         // give alice plenty of native tokens
         deal(alice, uint256(100e18));
 
@@ -211,7 +217,6 @@ contract UpgradeBase is Test {
     }
 
     function smokeTestGDA() public {
-        ISuperToken ethx = ISETH(NATIVE_TOKEN_WRAPPER);
         // give alice plenty of native tokens
         deal(alice, uint256(100e18));
 
@@ -228,7 +233,7 @@ contract UpgradeBase is Test {
 
         vm.startPrank(alice);
         ISETH(address(ethx)).upgradeByETH{value: 1e18}();
-        ethx.distributeToPool(alice, gdaPool, 1 ether);
+        ethx.distribute(alice, gdaPool, 1 ether);
         vm.stopPrank();
 
         vm.startPrank(bob);

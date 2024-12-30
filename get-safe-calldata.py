@@ -44,8 +44,8 @@ if not last_pending_tx:
 
 nonce_of_last_pending_tx = last_pending_tx['nonce'] if last_pending_tx else None
 
-if not nonce_of_last_pending_tx > next_nonce:
-    print("nonce of last pending tx (%s) already consumed. Next nonce: %s" % (nonce_of_last_pending_tx, next_nonce))
+if not nonce_of_last_pending_tx == next_nonce:
+    print("nonce of last pending tx (%s) not equal to next nonce (%s)" % (nonce_of_last_pending_tx, next_nonce))
     exit(1)
 
 calldata = last_pending_tx['data']
