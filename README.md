@@ -12,13 +12,7 @@ NETWORK=optimism-mainnet; PHASES=3 scripts/run_test.sh $NETWORK Upgrade_1_9_1 -v
 ```
 Here, `PHASES=3` stands for 1 & 2 (bitmask).
 
-Invocation for a network using Safe:
+Example for how to run with a Safe multisig:
 ```sh
-NETWORK=base-mainnet; PHASE1_CALLDATA=$(cat base-mainnet_phase1.calldata) PHASE2_CALLDATA=$(cat base-mainnet_phase2.calldata) PHASES=3 scripts/run_test.sh $NETWORK Upgrade_1_9_1 -vv
+NETWORK=base-mainnet; PHASES=3 PHASE1_CALLDATA=$(./get-safe-calldata.py $NETWORK 1) PHASE2_CALLDATA=$(./get-safe-calldata.py $NETWORK 0) scripts/run_test.sh $NETWORK Upgrade_1_14_1 --match-test testWithUpgrade -vvv
 ```
-
-By default, foundry runs the an evm with `evm-version` set to `paris`.
-Some custom Super Tokens are now deployed using `shanghai` feature set, causing tests for fail with [EvmError: NotActivated](https://github.com/foundry-rs/foundry/issues/6228).
-Run the test with `--evm-version shanghai` if the underlying chain supports that. In July 2024, all SF chains except celo-mainnet support the Shanghai feature set (incl. PUSH0).
-
-In order to upgrade foundry, checkout https://github.com/foundry-rs/forge-std and place it in lib

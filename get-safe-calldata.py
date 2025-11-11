@@ -22,6 +22,15 @@ GOV_SAFES = {
 }
 
 NETWORK = sys.argv[1] if len(sys.argv) > 1 else None
+offset_arg = sys.argv[2] if len(sys.argv) > 2 else None
+try:
+    OFFSET = int(offset_arg) if offset_arg is not None else 0
+except (ValueError, IndexError):
+    print("Offset must be an integer")
+    exit(1)
+if OFFSET < 0:
+    print("Offset must be non-negative")
+    exit(1)
 if not NETWORK or NETWORK not in GOV_SAFES:
     print("No config available for this network: %s" % NETWORK)
     exit(1)
@@ -36,18 +45,23 @@ last_executed_tx = last_executed_txs.json()['results'][0] if last_executed_txs.j
 next_nonce = last_executed_tx['nonce'] + 1 if last_executed_tx else 0
 
 pending_txs = requests.get(f'{baseUrl}/api/v1/safes/{safe}/multisig-transactions?executed=false')
-last_pending_tx = pending_txs.json()['results'][0] if pending_txs.json()['results'] else None
-
-if not last_pending_tx:
+pending_results = pending_txs.json()['results']
+if not pending_results:
     print("No pending transactions found")
     exit(1)
 
-nonce_of_last_pending_tx = last_pending_tx['nonce'] if last_pending_tx else None
-
-if not nonce_of_last_pending_tx == next_nonce:
-    print("nonce of last pending tx (%s) not equal to next nonce (%s)" % (nonce_of_last_pending_tx, next_nonce))
+if OFFSET >= len(pending_results):
+    print("Requested offset %s but only %s pending transactions available" % (OFFSET, len(pending_results)))
     exit(1)
 
-calldata = last_pending_tx['data']
+selected_pending_tx = pending_results[OFFSET]
+nonce_of_selected_pending_tx = selected_pending_tx['nonce']
+
+if offset_arg is None and OFFSET == 0 and nonce_of_selected_pending_tx != next_nonce:
+    print("nonce of last pending tx (%s) not equal to next nonce (%s)" % (nonce_of_selected_pending_tx, next_nonce))
+    exit(1)
+
+calldata = selected_pending_tx['data']
 
 print(calldata)
+

@@ -9,7 +9,9 @@ import {
     ISuperfluidPool,
     PoolConfig,
     PoolERC20Metadata,
-    IGeneralDistributionAgreementV1
+    IGeneralDistributionAgreementV1,
+    IERC20Metadata,
+    ISuperTokenFactory
 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -24,6 +26,7 @@ import { SuperTokenFactory } from "@superfluid-finance/ethereum-contracts/contra
 import { SuperTokenV1Library } from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperTokenV1Library.sol";
 import { IBeacon } from "@openzeppelin/contracts/proxy/beacon/IBeacon.sol";
 import { ERC2771Forwarder } from "@superfluid-finance/ethereum-contracts/contracts/utils/ERC2771Forwarder.sol";
+import { TestToken } from "@superfluid-finance/ethereum-contracts/contracts/utils/TestToken.sol";
 
 using SuperTokenV1Library for ISuperToken;
 using SuperTokenV1Library for ISETH;
@@ -177,6 +180,8 @@ contract UpgradeBase is Test {
         assertEq(ethx.balanceOf(address(this)), balanceBefore + 1e12 * 1000); // no change
 
         vm.stopPrank();
+
+        console.log("  passed native token wrapper smoke test");
     }
 
     function smokeTestSuperToken(address superTokenAddr) public {
@@ -221,28 +226,69 @@ contract UpgradeBase is Test {
         deal(alice, uint256(100e18));
 
         ISuperfluidPool gdaPool = ethx.createPool(address(this), PoolConfig(true, true));
-        console.log("pool address", address(gdaPool));
-        console.log("pool admin", gdaPool.admin());
-        console.log("pool GDA", address(SuperfluidPool(address(gdaPool)).GDA()));
+        console.log("  pool address", address(gdaPool));
+        console.log("  pool admin", gdaPool.admin());
+        console.log("  pool GDA", address(SuperfluidPool(address(gdaPool)).GDA()));
 
         uint256 balanceBobBefore = ethx.balanceOf(bob);
 
         gdaPool.updateMemberUnits(bob, 1);
-
-        assertEq(gdaPool.getTotalUnits(), 1);
+        assertEq(gdaPool.getTotalUnits(), 1, "total units wrong after updateMemberUnits");
 
         vm.startPrank(alice);
         ISETH(address(ethx)).upgradeByETH{value: 1e18}();
         ethx.distribute(alice, gdaPool, 1 ether);
         vm.stopPrank();
 
+        // verify unit increase/decrease
+
+        gdaPool.increaseMemberUnits(bob, 1);
+        assertEq(gdaPool.getUnits(bob), 2, "bob units wrong after increaseMemberUnits");
+
         vm.startPrank(bob);
         ethx.connectPool(gdaPool);
         vm.expectRevert(ISuperfluidPool.SUPERFLUID_POOL_SELF_TRANSFER_NOT_ALLOWED.selector);
-        IERC20(gdaPool).transfer(bob, 1);
+        IERC20(address(gdaPool)).transfer(bob, 1);
+        ethx.disconnectPool(gdaPool);
         vm.stopPrank();
 
+        gdaPool.decreaseMemberUnits(bob, 1);
+        assertEq(gdaPool.getUnits(bob), 1, "bob units wrong after decreaseMemberUnits");
+
         assertEq(ethx.balanceOf(bob), balanceBobBefore + 1 ether, "bob balance wrong after gda distribution");
+
+        // verify autoconnect behaviour
+
+        vm.startPrank(alice);
+        gda.setConnectPermission(false);
+        vm.stopPrank();
+
+        host.callAgreement(
+            gda,
+            abi.encodeCall(gda.tryConnectPoolFor, (gdaPool, alice, new bytes(0))),
+            new bytes(0)
+        );
+        // alice denied connect permission
+        assertEq(gda.isMemberConnected(gdaPool, alice), false);
+
+        // verify: not connected before
+        assertEq(gda.isMemberConnected(gdaPool, bob), false);
+        host.callAgreement(
+            gda,
+            abi.encodeCall(gda.tryConnectPoolFor, (gdaPool, bob, new bytes(0))),
+            new bytes(0)
+        );
+        assertEq(gda.isMemberConnected(gdaPool, bob), true);
+    }
+
+    function _testDeployNewERC20Wrapper() internal returns (ISuperToken newERC20Wrapper) {
+        // constructor(string memory name, string memory symbol, uint8 initDecimals, uint256 mintLimit)
+        address newERC20 = address(new TestToken("Super Test", "TEST", 18, 1_000_000 ether));
+        console.log("  new ERC20 token deployed to %s", address(newERC20));
+
+        // then, deploy a new ERC20 wrapper
+        newERC20Wrapper = deployWrapperSuperToken(address(newERC20));
+        console.log("  new ERC20 wrapper SuperToken deployed to %s", address(newERC20Wrapper));
     }
 
     function printUUPSCodeAddress(string memory description, address uupsProxyAddr) public view {
@@ -256,4 +302,58 @@ contract UpgradeBase is Test {
     function printBeaconCodeAddress(string memory description, address beaconProxyAddr) public view {
         console.log("%s %s -> %s", description, beaconProxyAddr, IBeacon(beaconProxyAddr).implementation());
     }
+
+    function deployWrapperSuperToken(address underlyingAddr) public returns (ISuperToken) {
+        return factory.createERC20Wrapper(
+            IERC20Metadata(underlyingAddr),
+            ISuperTokenFactory.Upgradability.SEMI_UPGRADABLE,
+            "Super Test",
+            "TEST"
+        );
+    }
+
+    // REGRESSION TESTS =====================================================
+
+    function _testRegressionGDAFakePool() internal {
+        address attacker = makeAddr("attacker");
+        vm.startPrank(attacker);
+
+        uint256 ethxBalance = address(ethx).balance;
+        console.log("  ethx balance: %s", ethxBalance);
+        MaliciousPool maliciousPool = new MaliciousPool(address(ethx));
+        IConnect gdaConnect = IConnect(address(gda));
+
+        vm.expectRevert(IGeneralDistributionAgreementV1.GDA_ONLY_SUPER_TOKEN_POOL.selector);
+        host.callAgreement(
+            gda,
+            abi.encodeCall(gdaConnect.connectPool, (address(maliciousPool), new bytes(0))),
+            ""
+        );
+    }
+}
+
+
+// for regression-testing the fake-pool issue in the GDA
+contract MaliciousPool {
+    address immutable _superToken;
+    
+    constructor(address superToken_) {
+        _superToken = superToken_;
+    }
+
+    function superToken() external view returns (address) {
+        return _superToken;
+    }
+
+    function getClaimable(address, uint32) public pure returns (int256) {
+        return type(int256).max; // Attacker can claim max amount of tokens
+    }
+
+    function operatorConnectMember(address, bool, uint32) external pure returns (bool) {
+        return true;
+    }
+}
+
+interface IConnect {
+    function connectPool(address pool, bytes calldata ctx) external;
 }

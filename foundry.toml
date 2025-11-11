@@ -1,11 +1,13 @@
 [profile.default]
 out = 'out'
 libs = ['lib']
+evm_version = 'shanghai'
 allow_paths = ["sf", "cfanft"]
 remappings = [
     '@superfluid-finance/ethereum-contracts/=sf/packages/ethereum-contracts/',
     '@superfluid-finance/solidity-semantic-money=sf/packages/solidity-semantic-money',
-    '@openzeppelin=sf/node_modules/@openzeppelin',
+    '@openzeppelin=sf/lib/openzeppelin-contracts',
+    '@openzeppelin-v5=sf/lib/openzeppelin-contracts',
     'cfanft=cfanft/'
 ]
 fs_permissions = [{ access = "read", path = "./input/"}]
