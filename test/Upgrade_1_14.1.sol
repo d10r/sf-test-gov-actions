@@ -8,6 +8,7 @@ import { Superfluid } from "@superfluid-finance/ethereum-contracts/contracts/sup
 import "./lib/UpgradeBase.sol";
 import { SuperfluidGovernanceII } from "@superfluid-finance/ethereum-contracts/contracts/gov/SuperfluidGovernanceII.sol";
 import { IAccessControl } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 using SuperTokenV1Library for ISuperToken;
 using SuperTokenV1Library for ISETH;
@@ -25,6 +26,28 @@ In order to achieve that, do a comprehensive smoke test.
 */
 contract Upgrade_1_14_1 is UpgradeBase {
 
+    // just one gov action. It calls `transferOwnership` on SuperfluidGovernance (Ownable interface).
+    // check: after the action, the owner of gov is 0x06a858185b3B2ABB246128Bb9415D57e5C09aEB6
+    function testTransferOwnership() public {
+        bytes memory transferGovCallData = vm.envOr("TRANSFER_GOV_CALLDATA", new bytes(0));
+        uint transferGovTxId = vm.envOr("TRANSFER_GOV_TX_ID", uint256(0));
+        
+        address expectedOwner = address(0x06a858185b3B2ABB246128Bb9415D57e5C09aEB6);
+        
+        console.log("executing transfer ownership action");
+        if (transferGovCallData.length > 0) {
+            console.log("  using provided calldata (precedence over tx id)");
+            execGovAction(transferGovCallData);
+        } else {
+            console.log("  using multisig tx id: %s", transferGovTxId);
+            execMultisigGovAction(transferGovTxId);
+        }
+        
+        address actualOwner = Ownable(address(gov)).owner();
+        console.log("  gov owner after action: %s", actualOwner);
+        assertEq(actualOwner, expectedOwner, "gov owner mismatch");
+    }
+    
     function testWithUpgrade() public {
         int phases = vm.envInt("PHASES");
         bytes memory phase1CallData = vm.envOr("PHASE1_CALLDATA", new bytes(0));
