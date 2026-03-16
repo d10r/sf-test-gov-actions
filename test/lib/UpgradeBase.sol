@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.23;
+pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
 import {
@@ -123,6 +123,14 @@ contract UpgradeBase is Test {
         require(success, "Inner transaction execution failed");
     }
 
+    // executes a SuperToken admin action using the provided calldata (e.g. enableYieldBackend)
+    // caller must pass the current admin address (e.g. Safe) and the calldata for the SuperToken
+    function execSuperTokenAdminAction(address superToken, address admin, bytes memory data) public {
+        vm.startPrank(admin);
+        (bool success, /*bytes memory returnData*/) = superToken.call(data);
+        vm.stopPrank();
+        require(success, "SuperToken admin action failed");
+    }
 
     // precondition: SuperToken is owned by SF gov
     function updateSuperToken(address superTokenAddr) public {
