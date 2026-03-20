@@ -7,6 +7,7 @@ import {
     IERC20
 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {IYieldBackend} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/IYieldBackend.sol";
+import {ISETH} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/tokens/ISETH.sol";
 import {IERC20Metadata} from "@openzeppelin-v5/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 /// Admin-only yield functions (on SuperToken impl, not in ISuperToken)
@@ -25,10 +26,51 @@ import "./lib/UpgradeBase.sol";
  *
  * Requires env: RPC, HOST_ADDR, NATIVE_TOKEN_WRAPPER (from run_yield_backend_test.sh),
  *   SUPER_TOKEN, YIELD_BACKEND, SUPER_TOKEN_ADMIN, GOV_CALLDATA, SUPER_TOKEN_ADMIN_CALLDATA.
+ *
+ * Native-asset SuperTokens (e.g. ETHx): `getUnderlyingToken()` is address(0). Uses ETH balances and
+ * ISETH upgradeByETH / downgradeToETH. AaveETHYieldBackend still has A_TOKEN() (detected as Aave).
  */
 contract YieldBackendActivation is UpgradeBase {
 
     uint256 constant ROUNDING_TOLERANCE = 1000;
+
+    function _isNativeAssetSuperToken(address superTokenAddr) internal view returns (bool) {
+        return ISuperToken(superTokenAddr).getUnderlyingToken() == address(0);
+    }
+
+    /// @dev Underlying liquidity held passively on the SuperToken (ERC20 balance or native ETH)
+    function _superTokenPassiveUnderlyingBalance(address superTokenAddr) internal view returns (uint256) {
+        if (_isNativeAssetSuperToken(superTokenAddr)) {
+            return superTokenAddr.balance;
+        }
+        return IERC20(ISuperToken(superTokenAddr).getUnderlyingToken()).balanceOf(superTokenAddr);
+    }
+
+    /// @dev Decimals for `toUnderlyingAmount` / yield dust when SuperToken underlying is unset (native).
+    function _underlyingDecimalsForYieldAccounting(address superTokenAddr, address yieldBackendAddr)
+        internal
+        view
+        returns (uint256)
+    {
+        address u = ISuperToken(superTokenAddr).getUnderlyingToken();
+        if (u != address(0)) {
+            return IERC20Metadata(u).decimals();
+        }
+        string memory t = _detectBackendType(yieldBackendAddr);
+        if (keccak256(bytes(t)) == keccak256(bytes("Aave"))) {
+            (, bytes memory data) = yieldBackendAddr.staticcall(abi.encodeWithSignature("ASSET_TOKEN()"));
+            address asset = abi.decode(data, (address));
+            return IERC20Metadata(asset).decimals();
+        }
+        if (keccak256(bytes(t)) == keccak256(bytes("ERC4626"))) {
+            (, bytes memory vd) = yieldBackendAddr.staticcall(abi.encodeWithSignature("VAULT()"));
+            address vault = abi.decode(vd, (address));
+            (, bytes memory ad) = vault.staticcall(abi.encodeWithSignature("asset()"));
+            address vaultAsset = abi.decode(ad, (address));
+            return IERC20Metadata(vaultAsset).decimals();
+        }
+        revert("Unsupported yield backend for native SuperToken");
+    }
 
     function _runActivationPhases() internal returns (address superTokenAddr, address yieldBackendAddr, address superTokenAdminAddr) {
         bytes memory govCalldata = vm.envOr("GOV_CALLDATA", new bytes(0));
@@ -101,14 +143,14 @@ contract YieldBackendActivation is UpgradeBase {
     }
 
     /// @return Max allowed yield position (shares) after disable: 10 ** decimalsGap (protocol-style dust)
-    function _getYieldPositionDustTolerance(address yieldBackendAddr, address underlyingAddr)
+    function _getYieldPositionDustTolerance(address superTokenAddr, address yieldBackendAddr)
         internal
         view
         returns (uint256)
     {
         string memory backendType = _detectBackendType(yieldBackendAddr);
         uint256 shareDecimals;
-        uint256 underlyingDecimals = uint256(IERC20Metadata(underlyingAddr).decimals());
+        uint256 underlyingDecimals = _underlyingDecimalsForYieldAccounting(superTokenAddr, yieldBackendAddr);
         if (keccak256(bytes(backendType)) == keccak256(bytes("Aave"))) {
             (, bytes memory aTokenData) = yieldBackendAddr.staticcall(abi.encodeWithSignature("A_TOKEN()"));
             address aToken = abi.decode(aTokenData, (address));
@@ -135,10 +177,9 @@ contract YieldBackendActivation is UpgradeBase {
         string memory backendType = _detectBackendType(yieldBackendAddr);
         console.log("Detected yield backend type: %s", backendType);
 
-        address underlyingAddr = ISuperToken(superTokenAddr).getUnderlyingToken();
         (uint256 normalizedTotalSupply,) = ISuperToken(superTokenAddr).toUnderlyingAmount(ISuperToken(superTokenAddr).totalSupply());
 
-        assertEq(IERC20(underlyingAddr).balanceOf(superTokenAddr), 0, "SuperToken underlying balance should be 0 after enable");
+        assertEq(_superTokenPassiveUnderlyingBalance(superTokenAddr), 0, "SuperToken underlying balance should be 0 after enable");
 
         uint256 yieldBalanceInUnderlying = _getYieldAssetBalanceInUnderlying(superTokenAddr, yieldBackendAddr);
         assertGe(
@@ -164,21 +205,35 @@ contract YieldBackendActivation is UpgradeBase {
         string memory backendType = _detectBackendType(yieldBackendAddr);
         console.log("Detected yield backend type: %s", backendType);
 
-        address underlyingAddr = ISuperToken(superTokenAddr).getUnderlyingToken();
-        IERC20 underlying = IERC20(underlyingAddr);
         ISuperToken superToken = ISuperToken(superTokenAddr);
+        bool native = _isNativeAssetSuperToken(superTokenAddr);
+        uint256 underlyingPerHolder = native ? 50_000 ether : 50_000 * 1e6;
 
-        uint256 underlyingPerHolder = 50_000 * 1e6;
-        address[3] memory holders = [vm.addr(1001), vm.addr(1002), vm.addr(1003)];
+        // Avoid low vm.addr seeds: on a fork they can collide with contracts; downgradeToETH uses
+        // `.transfer()`, which fails (or runs out of gas) for non-trivial receive/fallback.
+        address[3] memory holders =
+            [makeAddr("yba_holder_0"), makeAddr("yba_holder_1"), makeAddr("yba_holder_2")];
 
         for (uint256 i = 0; i < holders.length; i++) {
             if (i > 0) skip(gap);
-            deal(underlyingAddr, holders[i], underlyingPerHolder);
-            vm.startPrank(holders[i]);
-            underlying.approve(superTokenAddr, type(uint256).max);
-            superToken.upgrade(upgradeAmount);
+            if (native) {
+                vm.deal(holders[i], underlyingPerHolder);
+                vm.startPrank(holders[i]);
+                ISETH(superTokenAddr).upgradeByETH{value: upgradeAmount}();
+            } else {
+                address underlyingAddr = superToken.getUnderlyingToken();
+                IERC20 underlying = IERC20(underlyingAddr);
+                deal(underlyingAddr, holders[i], underlyingPerHolder);
+                vm.startPrank(holders[i]);
+                underlying.approve(superTokenAddr, type(uint256).max);
+                superToken.upgrade(upgradeAmount);
+            }
             skip(delayBeforeDowngrade);
-            superToken.downgrade(superToken.balanceOf(holders[i]));
+            if (native) {
+                ISETH(superTokenAddr).downgradeToETH(superToken.balanceOf(holders[i]));
+            } else {
+                superToken.downgrade(superToken.balanceOf(holders[i]));
+            }
             vm.stopPrank();
             assertEq(superToken.balanceOf(holders[i]), 0, "holder balance should be 0 after downgrade");
         }
@@ -199,8 +254,7 @@ contract YieldBackendActivation is UpgradeBase {
 
         assertEq(superToken.getYieldBackend(), address(0), "yield backend should be cleared");
 
-        address underlyingAddr = superToken.getUnderlyingToken();
-        uint256 underlyingAfter = IERC20(underlyingAddr).balanceOf(superTokenAddr);
+        uint256 underlyingAfter = _superTokenPassiveUnderlyingBalance(superTokenAddr);
         assertGe(
             underlyingAfter,
             normalizedTotalSupplyBefore - ROUNDING_TOLERANCE,
@@ -208,7 +262,7 @@ contract YieldBackendActivation is UpgradeBase {
         );
 
         uint256 yieldPositionSharesAfter = _getYieldPositionShares(superTokenAddr, yieldBackendAddr);
-        uint256 dustTolerance = _getYieldPositionDustTolerance(yieldBackendAddr, underlyingAddr);
+        uint256 dustTolerance = _getYieldPositionDustTolerance(superTokenAddr, yieldBackendAddr);
         assertLe(
             yieldPositionSharesAfter,
             dustTolerance,

@@ -4,6 +4,10 @@
 # Usage: scripts/run_yield_backend_test.sh <NETWORK> <SUPER_TOKEN> <YIELD_BACKEND> [optional env overrides]
 #
 # Required args: NETWORK, SUPER_TOKEN, YIELD_BACKEND.
+#
+# Native-asset SuperTokens (ETHx, etc.): use the ETHx (ISETH) address as SUPER_TOKEN and an
+# AaveETHYieldBackend (or compatible) address as YIELD_BACKEND. Tests use ETH balances and
+# upgradeByETH/downgradeToETH automatically when getUnderlyingToken() is zero.
 # Optional env:
 #   SUPER_TOKEN_ADMIN (default: gov Safe)
 #   GOV_CALLDATA_OFFSET (default 0, or 1 when admin Safe == gov Safe) — index of changeSuperTokenAdmin

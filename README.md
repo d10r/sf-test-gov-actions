@@ -24,6 +24,10 @@ Tests the two-step flow (gov Safe: changeSuperTokenAdmin; SuperToken Admin Safe:
 ```sh
 # From repo root: <NETWORK> <SUPER_TOKEN> <YIELD_BACKEND> (required)
 scripts/run_yield_backend_test.sh eth-mainnet 0x1BA8603DA702602A8657980e825A6DAa03Dee93a 0x818fbe37EcFee8b981dD1a2Bb2C292EEBE0AB21E
+
+# Native-asset SuperToken (e.g. ETHx) + AaveETHYieldBackend: SUPER_TOKEN is the ETHx (ISETH) proxy;
+# YIELD_BACKEND is the deployed AaveETHYieldBackend for that chain.
+# scripts/run_yield_backend_test.sh base-mainnet 0x'<ETHx>' 0x'<AaveETHYieldBackend>'
 ```
 
 With pre-set calldata (e.g. for CI or when Safe API is unavailable):
