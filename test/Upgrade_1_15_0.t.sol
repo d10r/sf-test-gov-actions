@@ -45,7 +45,7 @@ contract Upgrade_1_15_0 is UpgradeBase {
         }
     }
 
-    function _phase1(uint frameworkUpdateTxId, bytes memory govCallData) internal {
+    function _phase1(uint frameworkUpdateTxId, bytes memory govCallData) internal virtual {
         preCheck();
         console.log("executing framework update tx id %s", frameworkUpdateTxId);
         console.log("  host logic before upgrade: %s", UUPSProxiable(HOST_ADDR).getCodeAddress());
