@@ -100,7 +100,7 @@ contract Upgrade_1_15_0 is UpgradeBase {
         console.log("--- passed regression GDA fake pool test");
     }
 
-    function _testVersionAndYieldBackend(ISuperToken nativeWrapper, ISuperToken erc20Wrapper) internal view {
+    function _testVersionAndYieldBackend(ISuperToken nativeWrapper, ISuperToken erc20Wrapper) internal view virtual {
         address expectedLogic = address(factory.getSuperTokenLogic());
 
         // Only run v1.15.0 checks on tokens that have been upgraded (logic matches factory).

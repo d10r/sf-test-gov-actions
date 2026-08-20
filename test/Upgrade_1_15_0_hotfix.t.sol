@@ -38,6 +38,8 @@ Recommended invocation (gov Safe autodetection):
 */
 contract Upgrade_1_15_0_hotfix is Upgrade_1_15_0 {
     IConstantFlowAgreementV1 internal cfa;
+    // ETHx on Base/Mainnet already has a yield backend; the hotfix must not clear it.
+    address internal nativeYieldBackendBefore;
 
     struct LogicSnapshot {
         address host;
@@ -64,6 +66,28 @@ contract Upgrade_1_15_0_hotfix is Upgrade_1_15_0 {
         cfa = IConstantFlowAgreementV1(
             address(host.getAgreementClass(keccak256("org.superfluid-finance.agreements.ConstantFlowAgreement.v1")))
         );
+        nativeYieldBackendBefore = ISuperToken(NATIVE_TOKEN_WRAPPER).getYieldBackend();
+    }
+
+    function _testVersionAndYieldBackend(ISuperToken nativeWrapper, ISuperToken erc20Wrapper)
+        internal
+        view
+        override
+    {
+        address expectedLogic = address(factory.getSuperTokenLogic());
+
+        if (UUPSProxiable(address(nativeWrapper)).getCodeAddress() == expectedLogic) {
+            assertEq(nativeWrapper.VERSION(), "1.0.0", "native wrapper version mismatch");
+            assertEq(
+                nativeWrapper.getYieldBackend(),
+                nativeYieldBackendBefore,
+                "native wrapper yield backend should be unchanged"
+            );
+        }
+
+        assertEq(UUPSProxiable(address(erc20Wrapper)).getCodeAddress(), expectedLogic, "new wrapper logic mismatch");
+        assertEq(erc20Wrapper.VERSION(), "1.0.0", "ERC20 wrapper version mismatch");
+        assertEq(erc20Wrapper.getYieldBackend(), address(0), "new wrapper should have no yield backend");
     }
 
     function _phase1(uint frameworkUpdateTxId, bytes memory govCallData) internal override {
